@@ -40,6 +40,13 @@ jobs:
           echo "Attempting to login to ArgoCD at URL: ${ARGOCD_SERVER:-'not set'}"
           echo "Length of ARGOCD_SERVER: ${#ARGOCD_SERVER}"
           
+          if [[ -z "$ARGOCD_SERVER" ]]; then
+              echo "ARGOCD_SERVER is empty!"
+              exit 1
+          fi
+
+          echo "ARGOCD_SERVER: \"$ARGOCD_SERVER\""
+
           for (( i=0; i<${#ARGOCD_SERVER}; i++ )); do
             echo "Character $i: ${ARGOCD_SERVER:i:1}"
           done
@@ -53,6 +60,7 @@ jobs:
           fi
           echo "Login successful"
           argocd version
+
 
 
 

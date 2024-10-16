@@ -38,6 +38,12 @@ jobs:
           ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
         run: |
           echo "Attempting to login to ArgoCD at URL: ${ARGOCD_SERVER:-'not set'}"
+          echo "Length of ARGOCD_SERVER: ${#ARGOCD_SERVER}"
+          
+          for (( i=0; i<${#ARGOCD_SERVER}; i++ )); do
+            echo "Character $i: ${ARGOCD_SERVER:i:1}"
+          done
+
           if ! argocd login "$ARGOCD_SERVER" \
             --username "$ARGOCD_USERNAME" \
             --password "$ARGOCD_PASSWORD" \
@@ -47,6 +53,7 @@ jobs:
           fi
           echo "Login successful"
           argocd version
+
 
 
       - name: Sync Application

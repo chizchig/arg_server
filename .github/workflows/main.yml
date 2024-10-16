@@ -20,15 +20,16 @@ jobs:
 
       - name: Install Kubectl
         run: |
-          curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x ./kubectl
-          sudo mv ./kubectl /usr/local/bin/kubectl
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
           kubectl version --client
 
       - name: Install ArgoCD CLI
         run: |
-          curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/download/v2.1.0/argocd-linux-amd64
-          sudo chmod +x /usr/local/bin/argocd
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          sudo install -m 555 argocd /usr/local/bin/argocd
+          rm argocd
+          argocd version --client
 
       - name: Authenticate with ArgoCD
         env:
@@ -36,16 +37,37 @@ jobs:
           ARGOCD_USERNAME: ${{ secrets.ARGOCD_USERNAME }}
           ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
         run: |
-          argocd login $ARGOCD_SERVER \
-            --username $ARGOCD_USERNAME \
-            --password $ARGOCD_PASSWORD \
-            --insecure
+          echo "ArgoCD Server: $ARGOCD_SERVER"
+          echo "ArgoCD Username: $ARGOCD_USERNAME"
+          echo "Attempting to login to ArgoCD..."
+          if ! argocd login "$ARGOCD_SERVER" \
+            --username "$ARGOCD_USERNAME" \
+            --password "$ARGOCD_PASSWORD" \
+            --insecure; then
+            echo "ArgoCD login failed"
+            exit 1
+          fi
           echo "Login successful"
+          argocd version
 
       - name: Sync Application
         run: |
-          argocd app sync trivial-dev --prune --self-heal
+          if ! argocd app sync trivial-dev --prune --self-heal; then
+            echo "ArgoCD sync failed"
+            exit 1
+          fi
+          echo "Sync completed successfully"
 
       - name: Wait for Sync
         run: |
-          argocd app wait trivial-dev --health --timeout 300
+          if ! argocd app wait trivial-dev --health --timeout 300; then
+            echo "ArgoCD wait failed or timed out"
+            exit 1
+          fi
+          echo "Application is healthy and fully synced"
+
+      - name: Verify Deployment
+        run: |
+          argocd app get trivial-dev
+          kubectl get pods -n argocd
+          echo "Deployment verification completed"

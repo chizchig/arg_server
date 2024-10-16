@@ -31,24 +31,44 @@ jobs:
           rm argocd
           argocd version --client
 
-      - name: Authenticate with ArgoCD
-        env:
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
-          ARGOCD_USERNAME: ${{ secrets.ARGOCD_USERNAME }}
-          ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
-        run: |
-          echo "ArgoCD Server: $ARGOCD_SERVER"
-          echo "ArgoCD Username: $ARGOCD_USERNAME"
-          echo "Attempting to login to ArgoCD..."
-          if ! argocd login "$ARGOCD_SERVER" \
-            --username "$ARGOCD_USERNAME" \
-            --password "$ARGOCD_PASSWORD" \
-            --insecure; then
-            echo "ArgoCD login failed"
-            exit 1
-          fi
-          echo "Login successful"
-          argocd version
+          - name: Authenticate with ArgoCD
+          env:
+            ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+            ARGOCD_USERNAME: ${{ secrets.ARGOCD_USERNAME }}
+            ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
+          run: |
+            # Function to format server address
+            format_server_address() {
+              local address="$1"
+              # Check if it's an IPv6 address
+              if [[ $address == *:* && $address != *"://"* ]]; then
+                # Enclose IPv6 address in square brackets
+                address="[${address}]"
+              fi
+              # Ensure the address starts with a protocol
+              if [[ $address != *"://"* ]]; then
+                address="https://${address}"
+              fi
+              echo "$address"
+            }
+        
+            # Format the server address
+            FORMATTED_SERVER=$(format_server_address "$ARGOCD_SERVER")
+            
+            echo "ArgoCD Server: $FORMATTED_SERVER"
+            echo "ArgoCD Username: $ARGOCD_USERNAME"
+            echo "Attempting to login to ArgoCD..."
+            
+            if ! argocd login "$FORMATTED_SERVER" \
+              --username "$ARGOCD_USERNAME" \
+              --password "$ARGOCD_PASSWORD" \
+              --insecure; then
+              echo "ArgoCD login failed"
+              exit 1
+            fi
+            
+            echo "Login successful"
+            argocd version
 
       - name: Sync Application
         run: |

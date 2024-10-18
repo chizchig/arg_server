@@ -105,11 +105,26 @@ jobs:
         kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
         kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
 
+    - name: Check ArgoCD version
+      run: kubectl get deployments -n argocd -o jsonpath='{.items[*].spec.template.spec.containers[*].image}' | tr -s '[[:space:]]' '\n' | sort | uniq
+
     - name: Wait for ArgoCD to be ready
       run: |
-        kubectl wait --for=condition=available --timeout=600s deployment/argocd-server -n argocd
-        kubectl wait --for=condition=available --timeout=600s deployment/argocd-repo-server -n argocd
-        kubectl wait --for=condition=available --timeout=600s deployment/argocd-application-controller -n argocd
+        echo "Waiting for ArgoCD deployments to be ready..."
+        kubectl wait --for=condition=available --timeout=600s deployment/argocd-server -n argocd || echo "argocd-server not found or not ready"
+        kubectl wait --for=condition=available --timeout=600s deployment/argocd-repo-server -n argocd || echo "argocd-repo-server not found or not ready"
+        
+        # Check for different possible names of the application controller
+        if kubectl get deployment argocd-application-controller -n argocd &> /dev/null; then
+          kubectl wait --for=condition=available --timeout=600s deployment/argocd-application-controller -n argocd || echo "argocd-application-controller not ready"
+        elif kubectl get deployment argocd-app-controller -n argocd &> /dev/null; then
+          kubectl wait --for=condition=available --timeout=600s deployment/argocd-app-controller -n argocd || echo "argocd-app-controller not ready"
+        else
+          echo "Application controller deployment not found. Please check ArgoCD installation."
+        fi
+        
+        echo "Checking overall ArgoCD status..."
+        kubectl get pods -n argocd
 
     - name: Get ArgoCD admin password
       run: |

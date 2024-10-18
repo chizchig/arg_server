@@ -27,63 +27,47 @@ jobs:
           echo "$KUBE_CONFIG" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
-      - name: Install ArgoCD CLI
-        run: |
-          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-          sudo install -m 555 argocd /usr/local/bin/argocd
-          rm argocd
-          argocd version --client
-
-      - name: Set up port forwarding
-        run: |
-          # Start port forwarding in the background
-          kubectl port-forward svc/argocd-server -n argocd 8080:443 &
-          # Save the PID
-          echo $! > port_forward_pid
-          
-          # Wait for the port to be available
-          for i in {1..30}; do
-            if nc -z localhost 8080; then
-              echo "Port forwarding successful"
-              break
-            fi
-            if [ $i -eq 30 ]; then
-              echo "Port forwarding failed after 30 seconds"
-              exit 1
-            fi
-            sleep 1
-          done
-
-      - name: Authenticate with ArgoCD
+      - name: Get ArgoCD API Token
         env:
           ARGOCD_USERNAME: ${{ secrets.ARGOCD_USERNAME }}
           ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
         run: |
-          echo "Attempting to login to ArgoCD..."
-          # Retry logic for ArgoCD login
-          for i in {1..5}; do
-            if argocd login localhost:8080 \
-              --username "$ARGOCD_USERNAME" \
-              --password "$ARGOCD_PASSWORD" \
-              --insecure; then
-              echo "Login successful"
-              argocd version
-              break
-            fi
-            if [ $i -eq 5 ]; then
-              echo "ArgoCD login failed after 5 attempts"
-              exit 1
-            fi
-            echo "Login attempt $i failed. Retrying in 5 seconds..."
-            sleep 5
-          done
+          ARGOCD_TOKEN=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+          echo "ARGOCD_TOKEN=$ARGOCD_TOKEN" >> $GITHUB_ENV
 
-      # ... rest of your workflow ...
-
-      - name: Cleanup
-        if: always()
+      - name: Sync ArgoCD Application
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
         run: |
-          if [ -f port_forward_pid ]; then
-            kill $(cat port_forward_pid)
-            rm port_forward_pid
-          fi
+          APP_NAME="trivial-dev"  # Replace with your app name
+          curl -sSL -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $ARGOCD_TOKEN" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            "$ARGOCD_SERVER/api/v1/applications/$APP_NAME/sync" \
+            -d '{"prune": true, "strategy": {"hook": {"force": true}}}'
+
+      - name: Wait for Sync
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+        run: |
+          APP_NAME="trivial-dev"  # Replace with your app name
+          for i in {1..30}; do
+            STATUS=$(curl -sSL \
+              -H "Authorization: Bearer $ARGOCD_TOKEN" \
+              "$ARGOCD_SERVER/api/v1/applications/$APP_NAME" \
+              | jq -r '.status.sync.status')
+            if [ "$STATUS" = "Synced" ]; then
+              echo "Application synced successfully"
+              exit 0
+            fi
+            echo "Current sync status: $STATUS. Waiting..."
+            sleep 10
+          done
+          echo "Sync did not complete within the expected time"
+          exit 1
+
+      - name: Verify Deployment
+        run: |
+          kubectl get pods -n argocd
+          echo "Deployment verification completed"

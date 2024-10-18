@@ -51,7 +51,7 @@ jobs:
         env:
           ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
         run: |
-          APP_NAME="trivial-dev"  # Replace with your app name
+          APP_NAME="trivial-app"  # Replace with your app name
           for i in {1..30}; do
             STATUS=$(curl -sSL \
               -H "Authorization: Bearer $ARGOCD_TOKEN" \

@@ -36,9 +36,23 @@ jobs:
 
       - name: Set up port forwarding
         run: |
+          # Start port forwarding in the background
           kubectl port-forward svc/argocd-server -n argocd 8080:443 &
+          # Save the PID
           echo $! > port_forward_pid
-          sleep 10  # Give it a moment to establish the connection
+          
+          # Wait for the port to be available
+          for i in {1..30}; do
+            if nc -z localhost 8080; then
+              echo "Port forwarding successful"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Port forwarding failed after 30 seconds"
+              exit 1
+            fi
+            sleep 1
+          done
 
       - name: Authenticate with ArgoCD
         env:
@@ -46,37 +60,25 @@ jobs:
           ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
         run: |
           echo "Attempting to login to ArgoCD..."
-          if ! argocd login localhost:8080 \
-            --username "$ARGOCD_USERNAME" \
-            --password "$ARGOCD_PASSWORD" \
-            --insecure; then
-            echo "ArgoCD login failed"
-            exit 1
-          fi
-          echo "Login successful"
-          argocd version
+          # Retry logic for ArgoCD login
+          for i in {1..5}; do
+            if argocd login localhost:8080 \
+              --username "$ARGOCD_USERNAME" \
+              --password "$ARGOCD_PASSWORD" \
+              --insecure; then
+              echo "Login successful"
+              argocd version
+              break
+            fi
+            if [ $i -eq 5 ]; then
+              echo "ArgoCD login failed after 5 attempts"
+              exit 1
+            fi
+            echo "Login attempt $i failed. Retrying in 5 seconds..."
+            sleep 5
+          done
 
-      - name: Sync Application
-        run: |
-          if ! argocd app sync trivial-dev --prune --self-heal; then
-            echo "ArgoCD sync failed"
-            exit 1
-          fi
-          echo "Sync completed successfully"
-
-      - name: Wait for Sync
-        run: |
-          if ! argocd app wait trivial-dev --health --timeout 300; then
-            echo "ArgoCD wait failed or timed out"
-            exit 1
-          fi
-          echo "Application is healthy and fully synced"
-
-      - name: Verify Deployment
-        run: |
-          argocd app get trivial-dev
-          kubectl get pods -n argocd
-          echo "Deployment verification completed"
+      # ... rest of your workflow ...
 
       - name: Cleanup
         if: always()

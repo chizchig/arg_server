@@ -66,9 +66,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   build-and-deploy:
@@ -120,18 +120,17 @@ jobs:
         kubectl apply -f argocd.yml
         kubectl apply -f argocdserver.yml
 
-    - name: Generate ArgoCD Login Link
+    - name: Provide ArgoCD Access Instructions
       run: |
-        # Start minikube tunnel in the background
-        minikube tunnel &
-        # Wait for the tunnel to be established
-        sleep 30
-        # Get the ArgoCD server URL
-        ARGO_URL=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-        echo "ArgoCD URL: https://$ARGO_URL"
-        echo "ArgoCD Login Link: https://$ARGO_URL/auth/login"
-        echo "Username: admin"
-        echo "Password: $ARGO_PWD"
+        echo "To access ArgoCD locally, follow these steps:"
+        echo "1. Ensure you have kubectl installed and configured to access your cluster"
+        echo "2. Run the following command to set up port-forwarding:"
+        echo "   kubectl port-forward svc/argocd-server -n argocd 8080:443"
+        echo "3. Open your web browser and go to https://localhost:8080"
+        echo "4. Log in with the following credentials:"
+        echo "   Username: admin"
+        echo "   Password: $ARGO_PWD"
+        echo "Note: You may need to accept the self-signed certificate warning in your browser."
 
     - name: Verify Deployment
       run: |

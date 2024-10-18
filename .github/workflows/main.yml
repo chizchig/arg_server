@@ -8,11 +8,24 @@ on:
 
 jobs:
   deploy:
-    runs-on: self-hosted  # Assuming this is a runner within your cluster
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure kubectl
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        run: |
+          mkdir -p $HOME/.kube
+          echo "$KUBE_CONFIG" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
 
       - name: Install ArgoCD CLI
         run: |
@@ -23,9 +36,9 @@ jobs:
 
       - name: Set up port forwarding
         run: |
-          kubectl port-forward svc/argocd-server -n argocd 8000:443 &
+          kubectl port-forward svc/argocd-server -n argocd 8080:443 &
           echo $! > port_forward_pid
-          sleep 5  # Give it a moment to establish the connection
+          sleep 10  # Give it a moment to establish the connection
 
       - name: Authenticate with ArgoCD
         env:
@@ -33,7 +46,7 @@ jobs:
           ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
         run: |
           echo "Attempting to login to ArgoCD..."
-          if ! argocd login localhost:8000 \
+          if ! argocd login localhost:8080 \
             --username "$ARGOCD_USERNAME" \
             --password "$ARGOCD_PASSWORD" \
             --insecure; then

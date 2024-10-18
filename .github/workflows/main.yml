@@ -1,10 +1,74 @@
+# name: CI/CD Pipeline
+
+# on:
+#   push:
+#     branches: [ master ]
+#   pull_request:
+#     branches: [ master ]
+
+# jobs:
+#   build-and-deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#     - uses: actions/checkout@v2
+
+#     - name: Install Docker
+#       run: |
+#         sudo apt-get update
+#         sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+#         curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+#         sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+#         sudo apt-get update
+#         sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+#         sudo systemctl start docker
+#         sudo systemctl enable docker
+
+#     - name: Install Minikube
+#       run: |
+#         curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+#         sudo install minikube-linux-amd64 /usr/local/bin/minikube
+#         minikube start --driver=docker
+
+#     - name: Install kubectl
+#       run: |
+#         curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+#         sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+
+#     - name: Install ArgoCD
+#       run: |
+#         kubectl create namespace argocd
+#         kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+#         kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+
+#     - name: Wait for ArgoCD to be ready
+#       run: |
+#         kubectl wait --for=condition=available --timeout=600s deployment/argocd-server -n argocd
+
+#     - name: Get ArgoCD admin password
+#       run: |
+#         ARGO_PWD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+#         echo "ArgoCD admin password: $ARGO_PWD"
+
+#     - name: Apply ArgoCD configurations
+#       run: |
+#         kubectl apply -f argocd.yml
+#         kubectl apply -f argocdserver.yml
+
+#     - name: Verify Deployment
+#       run: |
+#         kubectl get applications -n argocd
+#         kubectl get ingress -n argocd
+
+#         # 
+
 name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
 
 jobs:
   build-and-deploy:
@@ -49,15 +113,27 @@ jobs:
       run: |
         ARGO_PWD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
         echo "ArgoCD admin password: $ARGO_PWD"
+        echo "ARGO_PWD=$ARGO_PWD" >> $GITHUB_ENV
 
     - name: Apply ArgoCD configurations
       run: |
         kubectl apply -f argocd.yml
         kubectl apply -f argocdserver.yml
 
+    - name: Generate ArgoCD Login Link
+      run: |
+        # Start minikube tunnel in the background
+        minikube tunnel &
+        # Wait for the tunnel to be established
+        sleep 30
+        # Get the ArgoCD server URL
+        ARGO_URL=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        echo "ArgoCD URL: https://$ARGO_URL"
+        echo "ArgoCD Login Link: https://$ARGO_URL/auth/login"
+        echo "Username: admin"
+        echo "Password: $ARGO_PWD"
+
     - name: Verify Deployment
       run: |
         kubectl get applications -n argocd
         kubectl get ingress -n argocd
-
-        # 

@@ -27,25 +27,57 @@ jobs:
           echo "$KUBE_CONFIG" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
 
+      - name: Verify Kubernetes Connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
       - name: Get ArgoCD API Token
-        env:
-          ARGOCD_USERNAME: ${{ secrets.ARGOCD_USERNAME }}
-          ARGOCD_PASSWORD: ${{ secrets.ARGOCD_PASSWORD }}
         run: |
           ARGOCD_TOKEN=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
+          if [ -z "$ARGOCD_TOKEN" ]; then
+            echo "Failed to retrieve ArgoCD token"
+            exit 1
+          fi
+          echo "ARGOCD_TOKEN is set and not empty"
           echo "ARGOCD_TOKEN=$ARGOCD_TOKEN" >> $GITHUB_ENV
+
+      - name: Verify ArgoCD Server
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+        run: |
+          if [[ "$ARGOCD_SERVER" == *"localhost"* ]] || [[ "$ARGOCD_SERVER" == *"127.0.0.1"* ]]; then
+            echo "ARGOCD_SERVER is set to a localhost address. This will not work from GitHub Actions."
+            echo "Please update the ARGOCD_SERVER secret to your ArgoCD's external URL."
+            exit 1
+          fi
+          echo "ARGOCD_SERVER is set to: $ARGOCD_SERVER"
 
       - name: Sync ArgoCD Application
         env:
           ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
         run: |
           APP_NAME="trivial-app"  # Replace with your app name
-          curl -sSL -o /dev/null -w "%{http_code}" \
+          echo "Attempting to sync application: $APP_NAME"
+          echo "Using ArgoCD server: $ARGOCD_SERVER"
+          RESPONSE=$(curl -sSL -w "\n%{http_code}" \
             -H "Authorization: Bearer $ARGOCD_TOKEN" \
             -H "Content-Type: application/json" \
             -X POST \
             "$ARGOCD_SERVER/api/v1/applications/$APP_NAME/sync" \
-            -d '{"prune": true, "strategy": {"hook": {"force": true}}}'
+            -d '{"prune": true, "strategy": {"hook": {"force": true}}}')
+          
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response Body: $BODY"
+          
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "Sync request failed"
+            exit 1
+          fi
+          echo "Sync request successful"
 
       - name: Wait for Sync
         env:
@@ -53,18 +85,23 @@ jobs:
         run: |
           APP_NAME="trivial-app"  # Replace with your app name
           for i in {1..30}; do
-            STATUS=$(curl -sSL \
+            RESPONSE=$(curl -sSL \
               -H "Authorization: Bearer $ARGOCD_TOKEN" \
-              "$ARGOCD_SERVER/api/v1/applications/$APP_NAME" \
-              | jq -r '.status.sync.status')
-            if [ "$STATUS" = "Synced" ]; then
-              echo "Application synced successfully"
+              "$ARGOCD_SERVER/api/v1/applications/$APP_NAME")
+            
+            STATUS=$(echo "$RESPONSE" | jq -r '.status.sync.status')
+            HEALTH=$(echo "$RESPONSE" | jq -r '.status.health.status')
+            
+            echo "Sync Status: $STATUS, Health: $HEALTH"
+            
+            if [ "$STATUS" = "Synced" ] && [ "$HEALTH" = "Healthy" ]; then
+              echo "Application synced and healthy"
               exit 0
             fi
-            echo "Current sync status: $STATUS. Waiting..."
+            echo "Waiting for sync and health check to complete..."
             sleep 10
           done
-          echo "Sync did not complete within the expected time"
+          echo "Sync or health check did not complete within the expected time"
           exit 1
 
       - name: Verify Deployment
